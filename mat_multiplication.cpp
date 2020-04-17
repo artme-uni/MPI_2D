@@ -83,7 +83,26 @@ void init_property_of_parts_B(int *dims, int *parts_B_size, int *parts_B_displs)
     }
 }
 
-void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
+void createsTypes(int *dims, MPI_Datatype *typeB, MPI_Datatype *typeBMod, int N2, int N3, int *part_column_size)
+{
+    //MPI_Type_vector(кол-во блоков, кол-во элементов в блоке, шаг, базовый тип, производный тип);
+    MPI_Type_vector(N2, part_column_size[0], N3, MPI_DOUBLE, typeB);
+    MPI_Type_vector(N2, part_column_size[dims[1] - 1], N3, MPI_DOUBLE, typeBMod);
+
+    MPI_Type_commit(typeB);
+    MPI_Type_commit(typeBMod);
+}
+
+void create_sub_comms(MPI_Comm comm_2D, MPI_Comm *comm_columns, MPI_Comm *comm_rows)
+{
+    int rows[2] = {0, 1};
+    int columns[2] = {1, 0};
+
+    MPI_Cart_sub(comm_2D, columns, comm_columns);
+    MPI_Cart_sub(comm_2D, rows, comm_rows);
+}
+
+int mat_multiplication(double *A, double *B, double *Result, int N1, int N2, int N3)
 {
     int comm_size, comm_rank;
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
@@ -96,6 +115,14 @@ void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
     int pr_coords[2];
     MPI_Cart_coords(comm_2D, comm_rank, MAX_DIMS, pr_coords);
 
+    if ((N1 % dims[0] != 0) || (N3 % N2 != 0))
+    {
+        if (pr_coords[0] == 0 && pr_coords[1] == 0)
+            printf("N1 должно быть кратно P1, а N3 кратно N2\n");
+
+        return -1;
+    }
+
     int parts_row_size[dims[0]];        //длина строки для каждого процесса
     int parts_column_size[dims[1]];     //длина столбца для каждого процесса
 
@@ -105,8 +132,8 @@ void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
     int pr_row_size = parts_row_size[0];
     int pr_column_size = parts_column_size[0];
 
-    int row_remainder_part = parts_row_size[dims[0] - 1] - pr_row_size;
-    int column_remained_part = parts_column_size[dims[1] - 1] - pr_column_size;
+    int row_remainder_part = parts_row_size[dims[0] - 1] - parts_row_size[0];
+    int column_remained_part = parts_column_size[dims[1] - 1] - parts_column_size[0];
 
     int current_row_size = parts_row_size[pr_coords[0]];
     int current_column_size = parts_column_size[pr_coords[1]];
@@ -116,52 +143,54 @@ void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
 
     MPI_Datatype typeB, typeBMod;
 
-    if (comm_rank == 0)
-    {
-        parts_A_displs = (int *) calloc(dims[0], sizeof(int));
-        parts_A_size = (int *) calloc(dims[0], sizeof(int));
-        parts_B_displs = (int *) calloc(dims[1], sizeof(int));
-        parts_B_size = (int *) calloc(dims[1], sizeof(int));
 
-        createsTypes(&typeB, &typeBMod, pr_column_size, column_remained_part, N1, N2, N3);
+    parts_A_displs = (int *) calloc(dims[0], sizeof(int));
+    parts_A_size = (int *) calloc(dims[0], sizeof(int));
+    parts_B_displs = (int *) calloc(dims[1], sizeof(int));
+    parts_B_size = (int *) calloc(dims[1], sizeof(int));
 
-        init_property_of_parts_A(dims, N2, parts_row_size, parts_A_size, parts_A_displs);
-        init_property_of_parts_B(dims, parts_B_size, parts_B_displs);
-    }
+    createsTypes(dims, &typeB, &typeBMod, N2, N3, parts_column_size);
 
-    MPI_Comm comm1DColumns;
-    MPI_Comm comm1DRows;
-    createComms(comm_2D, &comm1DColumns, &comm1DRows, N1, N2, N3);
+    init_property_of_parts_A(dims, N2, parts_row_size, parts_A_size, parts_A_displs);
+    init_property_of_parts_B(dims, parts_B_size, parts_B_displs);
 
-    double *aPart = (double *) calloc(current_row_size * N2, sizeof(double));
-    double *bPart = (double *) calloc(current_column_size * N2, sizeof(double));
-    double *cPart = (double *) calloc(current_column_size * current_row_size, sizeof(double));
+
+    MPI_Comm comm_Column;
+    MPI_Comm comm_Row;
+
+    create_sub_comms(comm_2D, &comm_Column, &comm_Row);
+
+
+    double *parts_A_value = (double *) calloc(parts_A_size[pr_coords[0]], sizeof(double));
+    double *parts_B_value = (double *) calloc(parts_column_size[pr_coords[1]] * N2, sizeof(double));
+    double *parts_Result_value = (double *) calloc(parts_row_size[pr_coords[0]] * parts_column_size[pr_coords[1]],
+                                                   sizeof(double));
 
     if (pr_coords[1] == 0)
     {
-        MPI_Scatterv(a, parts_A_size, parts_A_displs, MPI_DOUBLE, aPart, current_row_size * N2, MPI_DOUBLE, 0,
-                     comm1DColumns);
+        MPI_Scatterv(A, parts_A_size, parts_A_displs, MPI_DOUBLE, parts_A_value, parts_A_size[pr_coords[0]], MPI_DOUBLE,
+                     0, comm_Column);
     }
 
     if (pr_coords[0] == 0)
     {
 
-        MPI_Scatterv(b, parts_B_size, parts_B_displs, typeB, bPart, current_column_size * N2, MPI_DOUBLE, 0,
-                     comm1DRows);
+        MPI_Scatterv(B, parts_B_size, parts_B_displs, typeB, parts_B_value, parts_column_size[pr_coords[1]] * N2,
+                     MPI_DOUBLE, 0, comm_Row);
 
         if (pr_coords[1] == 0)
         {
-            MPI_Send(b + (N3 / pr_column_size - 1) * pr_column_size, 1, typeBMod, dims[1] - 1, 0, comm1DRows);
+            MPI_Send(B + (N3 / pr_column_size - 1) * pr_column_size, 1, typeBMod, dims[1] - 1, 0, comm_Row);
         }
 
         if (dims[1] - 1 == pr_coords[1])
-            MPI_Recv(bPart, pr_column_size * N2 + column_remained_part * N2, MPI_DOUBLE, 0, 0, comm1DRows,
+            MPI_Recv(parts_B_value, pr_column_size * N2 + column_remained_part * N2, MPI_DOUBLE, 0, 0, comm_Row,
                      MPI_STATUS_IGNORE);
     }
 
-    MPI_Bcast(aPart, current_row_size * N2, MPI_DOUBLE, 0, comm1DRows);
+    MPI_Bcast(parts_A_value, current_row_size * N2, MPI_DOUBLE, 0, comm_Row);
 
-    MPI_Bcast(bPart, current_column_size * N2, MPI_DOUBLE, 0, comm1DColumns);
+    MPI_Bcast(parts_B_value, current_column_size * N2, MPI_DOUBLE, 0, comm_Column);
 
     for (int i = 0; i < current_row_size; ++i)
     {
@@ -169,12 +198,14 @@ void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
         {
             for (int k = 0; k < N2; ++k)
             {
-                cPart[i * current_column_size + j] += aPart[i * N2 + k] * bPart[k * current_column_size + j];
+                parts_Result_value[i * current_column_size + j] +=
+                        parts_A_value[i * N2 + k] * parts_B_value[k * current_column_size + j];
             }
         }
     }
 
-    collectCMatrix(dims, pr_coords, c, cPart, pr_row_size, row_remainder_part, pr_column_size, column_remained_part,
+    collectCMatrix(dims, pr_coords, Result, parts_Result_value, pr_row_size, row_remainder_part, pr_column_size,
+                   column_remained_part,
                    comm_rank, N1,
                    N2, N3);
 
@@ -183,33 +214,13 @@ void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3)
     {
         MPI_Type_free(&typeB);
     }
-    free(aPart);
-    free(bPart);
-    free(cPart);
+    free(parts_A_value);
+    free(parts_B_value);
+    free(parts_Result_value);
+
+    return 0;
 }
 
-void createComms(MPI_Comm comm2D, MPI_Comm *columns, MPI_Comm *rows, int M, int N, int K)
-{
-    int remainsRow[2] = {0, 1};
-    int remainsColumns[2] = {1, 0};
-
-    MPI_Cart_sub(comm2D, remainsColumns, columns);
-    MPI_Cart_sub(comm2D, remainsRow, rows);
-}
-
-void createsTypes(MPI_Datatype *typeB, MPI_Datatype *typeBMod, int sizeColumnStrip, int sizeColumnStripMod, int M, int N,
-             int K)
-{
-    //MPI_Type_vector(кол-во блоков, кол-во элементов в блоке, шаг, базовый тип, производный тип);
-    MPI_Type_vector(N, sizeColumnStrip, K, MPI_DOUBLE, typeB);
-    MPI_Type_vector(N, sizeColumnStrip + sizeColumnStripMod, K, MPI_DOUBLE, typeBMod);
-
-    //MPI_Type_create_resized(*typeB, 0, sizeColumnStrip * sizeof(double), typeB);
-
-    MPI_Type_commit(typeB);
-    MPI_Type_commit(typeBMod);
-
-}
 
 void collectCMatrix(int *dims, int *coords, double *c, double *cPart, int sizeRowStrip, int sizeRowStripMod,
                     int sizeColumnStrip, int sizeColumnStripMod, int rank, int M, int N, int K)

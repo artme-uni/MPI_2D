@@ -14,9 +14,8 @@
 void mat_init(double *a, double *b, int N1, int N2, int N3);
 void mat_print(double *a, int N1, int N2);
 
-void mat_multiplication(double *a, double *b, double *c, int N1, int N2, int N3);
+int mat_multiplication(double *A, double *B, double *Result, int N1, int N2, int N3);
 void createsTypes(MPI_Datatype *typeB, MPI_Datatype *typeBMod, int sizeColumnStrip, int sizeColumnStripMod, int M, int N, int K);
-void createComms(MPI_Comm comm2D, MPI_Comm *columns, MPI_Comm *rows, int M, int N, int K);
 void fillDataForEachProc(int *dims, int *coords, int *sizeRows, int *sizeCols, int M, int N, int K);
 void init_property_of_parts_B(int *dims, int *sendCountsB, int *displsB, int M, int N, int K);
 void sendRecvMatrix(double *c, double *CPart,int *dims,int *recvCountsY,int splitX,int splitY,int countA, int rank, int M, int N, int K);
