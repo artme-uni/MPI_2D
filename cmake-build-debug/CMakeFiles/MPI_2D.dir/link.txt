@@ -1,0 +1,1 @@
+/usr//local/bin/mpicxx  -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk -Wl,-search_paths_first -Wl,-headerpad_max_install_names  CMakeFiles/MPI_2D.dir/main.cpp.o CMakeFiles/MPI_2D.dir/mat_multiplication.cpp.o  -o MPI_2D   -L/usr/local/opt/mpich/lib  -Wl,-rpath,/usr/local/opt/mpich/lib -lmpi 

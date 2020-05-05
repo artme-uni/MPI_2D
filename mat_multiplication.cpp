@@ -74,6 +74,7 @@ void init_parts_A_value(double *parts_A_value, double *A, int parts_A_size, int 
     {
         MPI_Scatter(A, parts_A_size, MPI_DOUBLE, parts_A_value, parts_A_size, MPI_DOUBLE, 0, comm_Column);
     }
+
     MPI_Bcast(parts_A_value, parts_A_size, MPI_DOUBLE, 0, comm_Row);
 }
 
@@ -99,6 +100,27 @@ void mult_parts(double *parts_A_value, double *parts_B_value, double *parts_Resu
             {
                 parts_Result_value[i * columns_count + j] +=
                         parts_A_value[i * N2 + k] * parts_B_value[k * columns_count + j];
+            }
+        }
+    }
+}
+
+void init_parts_C_property(int **parts_C_offset, int **parts_C_size, int *dims, int *pr_coords, int rows_count)
+{
+    if(pr_coords[0] == 0 && pr_coords[1]==0)
+    {
+        *parts_C_offset = (int *) calloc(dims[0] * dims[1], sizeof(int));
+        *parts_C_size = (int *) calloc(dims[0] * dims[1], sizeof(int));
+
+        for (int i = 0; i < dims[0] * dims[1]; ++i)
+        {
+            (*parts_C_size)[i] = 1;
+        }
+        for (int i = 0; i < dims[0]; ++i)
+        {
+            for (int j = 0; j < dims[1]; ++j)
+            {
+                (*parts_C_offset)[i * dims[1] + j] = i * dims[1] * rows_count + j;
             }
         }
     }
@@ -133,32 +155,24 @@ int mat_multiplication(MPI_Comm comm_2D, int *dims, int *pr_coords,
     MPI_Datatype MPI_typeC;
     createTypeC(&MPI_typeC, columns_count, rows_count, N3);
 
+    int *parts_C_offset, *parts_C_size;
 
-    int *parts_C_offset = (int *) calloc(dims[0] * dims[1], sizeof(int));
-    int *parts_C_size = (int *) calloc(dims[0] * dims[1], sizeof(int));
-
-    for (int i = 0; i < dims[0] * dims[1]; ++i)
-    {
-        parts_C_size[i] = 1;
-    }
-    for (int i = 0; i < dims[0]; ++i)
-    {
-        for (int j = 0; j < dims[1]; ++j)
-        {
-            parts_C_offset[i * dims[1] + j] = i * dims[1] * rows_count + j;
-        }
-    }
+    init_parts_C_property(&parts_C_offset, &parts_C_size, dims, pr_coords, rows_count);
 
     MPI_Gatherv(parts_Result_value, columns_count * rows_count, MPI_DOUBLE, Result, parts_C_size, parts_C_offset,
                 MPI_typeC, 0, comm_2D);
 
-    if (dims[0] == 0 && dims[1] == 0)
-    {
-        MPI_Type_free(&MPI_typeB);
-    }
+
     free(parts_A_value);
     free(parts_B_value);
     free(parts_Result_value);
+
+    if(pr_coords[0] == 0 && pr_coords[1] == 0)
+    {
+        free(parts_C_offset);
+        free(parts_C_size);
+        MPI_Type_free(&MPI_typeB);
+    }
 
     return 0;
 }

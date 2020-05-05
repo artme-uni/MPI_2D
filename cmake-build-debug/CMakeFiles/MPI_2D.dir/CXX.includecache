@@ -1,0 +1,22 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/twiggy/Doc_Git/Concurrent/MPI_2D/mat_multiplication.cpp
+iostream
+-
+mat_multiplication.h
+/Users/twiggy/Doc_Git/Concurrent/MPI_2D/mat_multiplication.h
+
+/Users/twiggy/Doc_Git/Concurrent/MPI_2D/mat_multiplication.h
+cstdlib
+-
+cstdio
+-
+mpi.h
+-
+
